@@ -24,7 +24,7 @@ Thumbs.db
 
 # App runtime files
 .app-restart-marker
-.app-restart-completed
+.app-boot-restart-marker
 
 # App settings
 .signage-settings.json

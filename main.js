@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // Get config path - works in both development and packaged builds
 // In packaged builds, config.json should be next to the exe or in resources/
@@ -26,7 +27,8 @@ function getConfigPath() {
 const CONFIG = getConfigPath();
 
 // Auto-restart configuration
-const AUTO_CLOSE_SECONDS = 5; // Close app after 5 seconds (first run only)
+const AUTO_CLOSE_SECONDS = 5; // Close app after 5 seconds (on each system boot)
+const FRESH_BOOT_UPTIME_SECONDS = 120; // Consider system fresh boot if uptime < 2 minutes
 
 // Flag to track if we're doing an automatic restart
 let isAutoRestarting = false;
@@ -65,20 +67,43 @@ function removeRestartMarker() {
   }
 }
 
-// Function to check if restart has already been completed
-function hasRestartCompleted() {
-  const exeDir = path.dirname(process.execPath);
-  const completedMarker = path.join(exeDir, '.app-restart-completed');
-  return fs.existsSync(completedMarker);
+// Function to check if system just booted (fresh boot detection)
+function isFreshSystemBoot() {
+  const uptimeSeconds = os.uptime();
+  return uptimeSeconds < FRESH_BOOT_UPTIME_SECONDS;
 }
 
-// Function to mark restart as completed (so it doesn't restart again)
-function markRestartCompleted() {
+// Function to check if we've already done the restart cycle for this boot session
+function hasRestartCompletedForThisBoot() {
+  const exeDir = path.dirname(process.execPath);
+  const bootMarker = path.join(exeDir, '.app-boot-restart-marker');
+  
+  if (!fs.existsSync(bootMarker)) {
+    return false;
+  }
+  
+  try {
+    // Read the boot marker and check if it matches current boot time
+    const markerContent = fs.readFileSync(bootMarker, 'utf8');
+    const bootTime = parseFloat(markerContent);
+    const currentUptime = os.uptime();
+    
+    // If marker was created when system had similar uptime, it's the same boot session
+    // We check if uptime difference is small (within 10 seconds)
+    return Math.abs(currentUptime - bootTime) < 10;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Function to mark restart as completed for this boot session
+function markRestartCompletedForThisBoot() {
   try {
     const exeDir = path.dirname(process.execPath);
-    const completedMarker = path.join(exeDir, '.app-restart-completed');
-    fs.writeFileSync(completedMarker, new Date().toISOString(), 'utf8');
-    console.log('Marked app restart as completed - no more auto-restarts');
+    const bootMarker = path.join(exeDir, '.app-boot-restart-marker');
+    // Store current system uptime as marker
+    fs.writeFileSync(bootMarker, os.uptime().toString(), 'utf8');
+    console.log('Marked app restart as completed for this boot session');
   } catch (e) {
     console.error('Failed to mark restart as completed:', e);
   }
@@ -86,7 +111,7 @@ function markRestartCompleted() {
 
 // Function to restart the application
 function restartApplication() {
-  console.log('Restarting application (one-time restart)...');
+  console.log('Restarting application (boot cycle restart)...');
   
   // Set flag to prevent window-all-closed from interfering
   isAutoRestarting = true;
@@ -94,8 +119,8 @@ function restartApplication() {
   // Create marker so we know to delay on next startup
   createRestartMarker();
   
-  // Mark that restart will be completed after this
-  markRestartCompleted();
+  // Mark that restart will be completed for this boot session
+  markRestartCompletedForThisBoot();
   
   // Unregister shortcuts
   globalShortcut.unregisterAll();
@@ -216,25 +241,39 @@ function createWindows() {
 }
 
 app.on('ready', () => {
-  // Check if we just restarted
+  // Check if we just restarted (from our own restart cycle)
   if (shouldDelayStartup()) {
     console.log('App just restarted. Opening windows immediately...');
     removeRestartMarker();
     
-    // After restart - open windows immediately, no delay, no more auto-restarts
+    // After restart - open windows immediately, no delay, no more auto-restarts for this boot
     createWindows();
     setupDisplayHotplug();
-    console.log('App restart completed. Running normally - no more auto-restarts.');
+    console.log('App restart completed for this boot session. Running normally.');
   } else {
-    // First run - open windows immediately and set 5-second auto-close timer
+    // Check if this is a fresh system boot and we haven't done restart cycle yet
+    const isFreshBoot = isFreshSystemBoot();
+    const restartDone = hasRestartCompletedForThisBoot();
+    
+    console.log(`System uptime: ${os.uptime().toFixed(1)} seconds`);
+    console.log(`Fresh boot detected: ${isFreshBoot}, Restart done: ${restartDone}`);
+    
+    // Open windows immediately
     createWindows();
     setupDisplayHotplug();
     
-    // Only set up auto-close timer if restart hasn't been completed yet
-    if (!hasRestartCompleted()) {
+    // Set up auto-close timer if:
+    // 1. System just booted (fresh boot) AND
+    // 2. We haven't done the restart cycle for this boot yet
+    if (isFreshBoot && !restartDone) {
+      console.log('Fresh system boot detected. Will auto-restart after 5 seconds.');
       setupAutoCloseTimer();
     } else {
-      console.log('App restart already completed. Auto-restart disabled.');
+      if (!isFreshBoot) {
+        console.log('System has been running. No auto-restart needed.');
+      } else {
+        console.log('Restart cycle already completed for this boot session.');
+      }
     }
   }
 });
