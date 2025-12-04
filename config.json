@@ -1,0 +1,14 @@
+{
+  "windows": [
+    { "displayIndex": 0, "url": "https://dashboard.example.com/ops" },
+    { "displayIndex": 1, "url": "https://status.example.com" },
+    { "displayIndex": 2, "url": "https://camera1.example.com" },
+    { "displayIndex": 3, "url": "https://camera2.example.com" },
+    { "displayIndex": 4, "url": "https://alerts.example.com" },
+    { "displayIndex": 5, "url": "https://metrics.example.com" },
+    { "displayIndex": 6, "url": "https://feed1.example.com" },
+    { "displayIndex": 7, "url": "https://feed2.example.com" }
+  ],
+  "fallbackUrl": "about:blank",
+  "reloadIntervalSec": 0
+}
